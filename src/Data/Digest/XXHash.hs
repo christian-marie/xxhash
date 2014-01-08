@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns, CPP, GeneralizedNewtypeDeriving, RecordWildCards #-}
-{-# LANGUAGE UnboxedTuples #-}
 {-# OPTIONS_GHC -funbox-strict-fields #-}
 
 module Data.Digest.XXHash
@@ -21,6 +20,7 @@ import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Ptr (Ptr, castPtr, plusPtr)
 import Data.ByteString.Internal (ByteString(PS), inlinePerformIO)
 import Foreign.Storable (peek)
+import Data.IORef
 
 data Acc = Acc { a1 :: !Word32
            , a2 :: !Word32
@@ -31,7 +31,8 @@ data Acc = Acc { a1 :: !Word32
 type XXHash = Word32
 type Seed = Word32
 
-initState !seed = (#,,,#) a1 a2 a3 a4
+initState :: Seed -> IO (IORef Acc)
+initState !seed = newIORef $ Acc a1 a2 a3 a4
     where !a1 = seed + prime1 + prime2
           !a2 = seed + prime2
           !a3 = seed
@@ -50,9 +51,9 @@ finalize hash = step2 `xor` step2 `shiftR` 16
     step1 = (hash `xor` (hash `shiftR` 15)) * prime2
     step2 = (step1 `xor` (step1 `shiftR` 13)) * prime3
 
-stageOne :: Word32 -> Word32 -> Word32 -> Word32 -> Word32 -> Word32 -> Word32 -> Word32 -> (# Word32 , Word32 ,Word32 , Word32 #)
-stageOne !i1 !i2 !i3 !i4 !a1 !a2 !a3 !a4 =
-    (# ,,, #) (vx a1 i1) (vx a2 i2) (vx a3 i3) (vx a4 i4)
+stageOne :: Word32 -> Word32 -> Word32 -> Word32 -> IORef Acc -> IO ()
+stageOne !i1 !i2 !i3 !i4 !ref = modifyIORef' ref $ \Acc{..} ->
+    Acc (vx a1 i1) (vx a2 i2) (vx a3 i3) (vx a4 i4)
   where
       vx v i = ((v + i * prime2) `rotateL` 13) * prime1
     
@@ -64,8 +65,10 @@ stageThree :: Word8 -> XXHash -> XXHash
 stageThree i hash =
     ((hash + fromIntegral i * prime5) `rotateL` 11) * prime1
 
-fromAcc :: Word32 -> Word32 -> Word32 -> Word32 -> XXHash
-fromAcc !a1 !a2 !a3 !a4 = (a1 `rotateL` 1) + (a2 `rotateL` 7) + (a3 `rotateL` 12) + (a4 `rotateL` 18)
+fromAcc :: IORef Acc -> Word32 -> IO XXHash
+fromAcc !ref !len = do
+    Acc{..} <- readIORef ref
+    return $ (a1 `rotateL` 1) + (a2 `rotateL` 7) + (a3 `rotateL` 12) + (a4 `rotateL` 18) + len
 
 {-# INLINE fromAcc #-}
 {-# INLINE stageThree #-}
@@ -79,17 +82,17 @@ hashByteString seed (PS fp os len) =
   inlinePerformIO . withForeignPtr fp $ \bs_base_ptr ->
     let ptr_beg = bs_base_ptr `plusPtr` os
         ptr_end = ptr_beg `plusPtr` len
-        processBody :: Ptr Word8 -> Word32 -> Word32 -> Word32 -> Word32 -> IO XXHash
-        processBody !ptr !a1 !a2 !a3 !a4
+        processBody :: Ptr Word8 -> IORef Acc -> IO XXHash
+        processBody !ptr !v
             | ptr <= ptr_end `plusPtr` (-16) = do
                 i1 <- peekLE32 ptr 0
                 i2 <- peekLE32 ptr 4
                 i3 <- peekLE32 ptr 8
                 i4 <- peekLE32 ptr 12
-                let (#a1', a2', a3', a4'#) = stageOne i1 i2 i3 i4 a1 a2 a3 a4
-                processBody (ptr `plusPtr` 16) a1' a2' a3' a4'
+                stageOne i1 i2 i3 i4 v
+                processBody (ptr `plusPtr` 16) v
             | otherwise = do
-                processEnd ptr $ (fromAcc a1 a2 a3 a4) + (fromIntegral len)
+                processEnd ptr =<< fromAcc v (fromIntegral len)
         processEnd :: Ptr Word8 -> XXHash -> IO XXHash
         processEnd !ptr !hash
             | ptr < ptr_end `plusPtr` (-4) = do
@@ -102,8 +105,7 @@ hashByteString seed (PS fp os len) =
                 processEnd (ptr `plusPtr` 1) (stageThree b hash)
     in if len < 16
        then processEnd ptr_beg $ prime5 + seed + fromIntegral len -- shortcut
-       else let (#a1', a2', a3', a4'#) = initState seed in
-                processBody ptr_beg a1' a2' a3' a4'
+       else processBody ptr_beg =<< initState seed
 
 peekByte :: Ptr Word8 -> IO Word8
 peekByte = peek

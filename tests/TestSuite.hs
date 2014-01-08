@@ -18,9 +18,9 @@ suite = do
 
 internalFunctionsTest :: Spec
 internalFunctionsTest = do
-    it "fromV has correct output" $
-        3672751773 `shouldBe` fromV 
-            (V 3707864141 1226176970 2466439235 1709939193)
+    it "fromAcc has correct output" $
+        3672751773 `shouldBe` fromAcc 
+            (Acc 3707864141 1226176970 2466439235 1709939193)
     it "stageOne has correct output" testStageOne
     it "stageTwo has correct output" $
         stageTwo 1852796960 3672751810 `shouldBe` 892131078
@@ -33,5 +33,5 @@ internalFunctionsTest = do
         r `shouldBe` stageOne 543516788 1667855729 1919033451 544110447 v
       where
         
-        v = V 606290984 2246822519 0 1640531535
-        r = V 2590359605 2072081322 3418880061 977135912
+        v = Acc 606290984 2246822519 0 1640531535
+        r = Acc 2590359605 2072081322 3418880061 977135912

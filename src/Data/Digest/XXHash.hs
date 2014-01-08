@@ -1,41 +1,51 @@
 {-# LANGUAGE BangPatterns, CPP, GeneralizedNewtypeDeriving, RecordWildCards #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# OPTIONS_GHC -funbox-strict-fields #-}
 
 module Data.Digest.XXHash
 (
-    Acc(..),
-    fromAcc,
+    XXHashCtx(..),
     stageThree,
     stageTwo,
     stageOne,
     finalize,
-    hashByteString,
+    xxHash,
 ) where
 
 #include "MachDeps.h"
 
 import Data.Bits
-import Data.Word (Word8, Word32)
+import Data.Tagged
+import Data.Word (Word8, Word32, Word64)
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Ptr (Ptr, castPtr, plusPtr)
 import Data.ByteString.Internal (ByteString(PS), inlinePerformIO)
 import Foreign.Storable (peek)
+import Crypto.Classes (Hash(..), hash)
+import qualified Data.Serialize.Get as G
+import qualified Data.Serialize.Put as P
+import qualified Data.Serialize as S
+import qualified Data.ByteString.Lazy as L
 
-data Acc = Acc { a1 :: !Word32
-               , a2 :: !Word32
-               , a3 :: !Word32
-               , a4 :: !Word32
-               } deriving (Eq, Show)
+data XXHashCtx = XXHashCtx { a1         :: !Word32
+                           , a2         :: !Word32
+                           , a3         :: !Word32
+                           , a4         :: !Word32
+                           , iterations :: !Word32
+                           } deriving (Eq, Show)
 
-type XXHash = Word32
+data XXHash = XXHash { unXXHash :: !Word32 }
+    deriving (Eq, Ord, Show)
 type Seed = Word32
 
-initState :: Seed -> Acc
-initState seed = Acc a1 a2 a3 a4
-    where a1 = seed + prime1 + prime2
-          a2 = seed + prime2
-          a3 = seed
-          a4 = seed - prime1
+initializeXXHashCtx :: Seed -> XXHashCtx
+initializeXXHashCtx seed =
+    XXHashCtx a1 a2 a3 a4 iterations
+  where a1 = seed + prime1 + prime2
+        a2 = seed + prime2
+        a3 = seed
+        a4 = seed - prime1
+        iterations = 0
 
 prime1, prime2, prime3, prime4, prime5 :: Word32
 prime1 = 2654435761
@@ -44,64 +54,90 @@ prime3 = 3266489917
 prime4 = 668265263
 prime5 = 374761393
 
-finalize :: XXHash -> XXHash
-finalize hash = step2 `xor` step2 `shiftR` 16
+finalizeXXHash :: XXHash -> XXHash
+finalizeXXHash (XXHash hash) = XXHash $ step2 `xor` step2 `shiftR` 16
   where
     step1 = (hash `xor` (hash `shiftR` 15)) * prime2
     step2 = (step1 `xor` (step1 `shiftR` 13)) * prime3
 
-stageOne :: Word32 -> Word32 -> Word32 -> Word32 -> Acc -> Acc
-stageOne i1 i2 i3 i4 Acc{..} =
-    Acc (vx a1 i1) (vx a2 i2) (vx a3 i3) (vx a4 i4)
+stageOne :: Word32 -> Word32 -> Word32 -> Word32 -> XXHashCtx -> XXHashCtx
+stageOne i1 i2 i3 i4 XXHashCtx{..} =
+    XXHashCtx (vx a1 i1) (vx a2 i2) (vx a3 i3) (vx a4 i4) (iterations + 1)
   where
       vx v i = ((v + i * prime2) `rotateL` 13) * prime1
     
 stageTwo :: Word32 -> XXHash -> XXHash
-stageTwo i hash =
-    ((hash + i * prime3) `rotateL` 17) * prime4
+stageTwo i (XXHash hash) =
+    XXHash $ ((hash + i * prime3) `rotateL` 17) * prime4
 
 stageThree :: Word8 -> XXHash -> XXHash
-stageThree i hash =
-    ((hash + fromIntegral i * prime5) `rotateL` 11) * prime1
+stageThree i (XXHash hash) =
+    XXHash $ ((hash + fromIntegral i * prime5) `rotateL` 11) * prime1
 
-fromAcc :: Acc -> XXHash
-fromAcc Acc{..} = (a1 `rotateL` 1) + (a2 `rotateL` 7) + (a3 `rotateL` 12) + (a4 `rotateL` 18)
+ctxToDigest :: XXHashCtx -> Word64 -> XXHash
+ctxToDigest XXHashCtx{..} total_len =
+    XXHash $ (a1 `rotateL` 1) + (a2 `rotateL` 7) + (a3 `rotateL` 12) + (a4 `rotateL` 18) + (fromIntegral total_len)
 
-{-# INLINE fromAcc #-}
 {-# INLINE stageThree #-}
 {-# INLINE stageTwo #-}
 {-# INLINE stageOne #-}
-{-# INLINE finalize #-}
-{-# INLINE initState #-}
+{-# INLINE finalizeXXHash #-}
 
-hashByteString :: Word32 -> ByteString -> XXHash
-hashByteString seed (PS fp os len) =
-  inlinePerformIO . withForeignPtr fp $ \bs_base_ptr ->
-    let ptr_beg = bs_base_ptr `plusPtr` os
-        ptr_end = ptr_beg `plusPtr` len
-        processBody :: Ptr Word8 -> Acc -> IO XXHash
-        processBody ptr !v
-            | ptr <= ptr_end `plusPtr` (-16) = do
-                i1 <- peekLE32 ptr 0
-                i2 <- peekLE32 ptr 4
-                i3 <- peekLE32 ptr 8
-                i4 <- peekLE32 ptr 12
-                processBody (ptr `plusPtr` 16) (stageOne i1 i2 i3 i4 v)
+updateXXHashCtx :: XXHashCtx -> ByteString -> XXHashCtx
+updateXXHashCtx ctx (PS fp os len) =
+    inlinePerformIO . withForeignPtr fp $ \bs_base_ptr ->
+        let ptr_beg = bs_base_ptr `plusPtr` os
+            ptr_end = ptr_beg `plusPtr` len
+            go ptr !ctx'
+                | ptr < ptr_end = do
+                    i1 <- peekLE32 ptr 0
+                    i2 <- peekLE32 ptr 4
+                    i3 <- peekLE32 ptr 8
+                    i4 <- peekLE32 ptr 12
+                    go (ptr `plusPtr` 16) (stageOne i1 i2 i3 i4 ctx')
+                | otherwise = return ctx'
+        in go ptr_beg ctx
+
+finalizeXXHashCtx :: Seed -> XXHashCtx -> ByteString -> XXHash
+finalizeXXHashCtx seed ctx (PS fp os len) =
+    inlinePerformIO . withForeignPtr fp $ \bs_base_ptr ->
+        let ptr_beg = bs_base_ptr `plusPtr` os
+            ptr_end = ptr_beg `plusPtr` len
+            total_len :: Word64
+            total_len = (fromIntegral len) + (fromIntegral $ iterations ctx) * 16
+            go :: Ptr Word8 -> XXHashCtx -> IO XXHash
+            go ptr !ctx'
+                | ptr <= ptr_end `plusPtr` (-16) = do
+                    i1 <- peekLE32 ptr 0
+                    i2 <- peekLE32 ptr 4
+                    i3 <- peekLE32 ptr 8
+                    i4 <- peekLE32 ptr 12
+                    go (ptr `plusPtr` 16) (stageOne i1 i2 i3 i4 ctx')
+                | otherwise =
+                    goEnd ptr $
+                        if total_len >= 16
+                        then (ctxToDigest ctx' total_len)
+                        else XXHash $ seed + prime5 + (fromIntegral total_len)
+            goEnd :: Ptr Word8 -> XXHash -> IO XXHash
+            goEnd ptr !xxhash
+                | ptr <= ptr_end `plusPtr` (-4) = do
+                    b <- peekLE32 ptr 0
+                    goEnd (ptr `plusPtr` 4) (stageTwo b xxhash)
+                | ptr == ptr_end = 
+                    return $ finalizeXXHash xxhash
+                | otherwise = do
+                    b <- peekByte ptr
+                    goEnd (ptr `plusPtr` 1) (stageThree b xxhash)
+        in go ptr_beg ctx
+{-
+ -
             | otherwise = do
-                processEnd ptr $ (fromAcc v) + (fromIntegral len)
+                processEnd ptr $ (fromXXHashCtx v) + (fromIntegral len)
+ -
+ -
         processEnd :: Ptr Word8 -> XXHash -> IO XXHash
         processEnd ptr !hash
-            | ptr <= ptr_end `plusPtr` (-4) = do
-                b <- peekLE32 ptr 0
-                processEnd (ptr `plusPtr` 4) (stageTwo b hash)
-            | ptr == ptr_end = 
-                return $ finalize hash
-            | otherwise = do
-                b <- peekByte ptr
-                processEnd (ptr `plusPtr` 1) (stageThree b hash)
-    in if len < 16
-       then processEnd ptr_beg $ prime5 + seed + fromIntegral len -- shortcut
-       else processBody ptr_beg $ initState seed
+-}
 
 peekByte :: Ptr Word8 -> IO Word8
 peekByte = peek
@@ -123,3 +159,19 @@ peekLE32 ptr os = do
     return w
 #endif
 {-# INLINE peekLE32 #-}
+
+xxHash :: L.ByteString -> XXHash
+xxHash = hash
+
+instance Hash XXHashCtx XXHash where
+	outputLength = Tagged 128
+	blockLength  = Tagged 512
+	initialCtx   = initializeXXHashCtx 0
+	updateCtx    = updateXXHashCtx
+	finalize     = finalizeXXHashCtx 0
+
+instance S.Serialize XXHash where
+    put (XXHash p) = S.put p
+    get = do
+        p <- S.get
+        return $ XXHash p

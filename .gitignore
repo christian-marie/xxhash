@@ -1,0 +1,6 @@
+test
+test.*
+*.iso
+dist/
+*.hi
+*.o

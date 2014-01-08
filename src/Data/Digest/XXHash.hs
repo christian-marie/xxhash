@@ -31,11 +31,11 @@ type XXHash = Word32
 type Seed = Word32
 
 initState :: Seed -> Acc
-initState !seed = Acc a1 a2 a3 a4
-    where !a1 = seed + prime1 + prime2
-          !a2 = seed + prime2
-          !a3 = seed
-          !a4 = seed - prime1
+initState seed = Acc a1 a2 a3 a4
+    where a1 = seed + prime1 + prime2
+          a2 = seed + prime2
+          a3 = seed
+          a4 = seed - prime1
 
 prime1, prime2, prime3, prime4, prime5 :: Word32
 prime1 = 2654435761
@@ -51,7 +51,7 @@ finalize hash = step2 `xor` step2 `shiftR` 16
     step2 = (step1 `xor` (step1 `shiftR` 13)) * prime3
 
 stageOne :: Word32 -> Word32 -> Word32 -> Word32 -> Acc -> Acc
-stageOne !i1 !i2 !i3 !i4 !Acc{..} =
+stageOne i1 i2 i3 i4 Acc{..} =
     Acc (vx a1 i1) (vx a2 i2) (vx a3 i3) (vx a4 i4)
   where
       vx v i = ((v + i * prime2) `rotateL` 13) * prime1
@@ -80,7 +80,7 @@ hashByteString seed (PS fp os len) =
     let ptr_beg = bs_base_ptr `plusPtr` os
         ptr_end = ptr_beg `plusPtr` len
         processBody :: Ptr Word8 -> Acc -> IO XXHash
-        processBody !ptr !v
+        processBody ptr !v
             | ptr <= ptr_end `plusPtr` (-16) = do
                 i1 <- peekLE32 ptr 0
                 i2 <- peekLE32 ptr 4
@@ -90,7 +90,7 @@ hashByteString seed (PS fp os len) =
             | otherwise = do
                 processEnd ptr $ (fromAcc v) + (fromIntegral len)
         processEnd :: Ptr Word8 -> XXHash -> IO XXHash
-        processEnd !ptr !hash
+        processEnd ptr !hash
             | ptr < ptr_end `plusPtr` (-4) = do
                 b <- peekLE32 ptr 0
                 processEnd (ptr `plusPtr` 4) (stageTwo b hash)
@@ -109,10 +109,10 @@ peekByte = peek
 
 peekLE32 :: Ptr Word8 -> Int -> IO Word32
 #if defined(x86_64_HOST_ARCH) || defined(i386_HOST_ARCH)
-peekLE32 !ptr !os = peek (castPtr (ptr `plusPtr` os))
+peekLE32 ptr os = peek (castPtr (ptr `plusPtr` os))
 #else
 -- Super slow, around 100x slower.
-peekLE32 !ptr !os = do
+peekLE32 ptr os = do
     let peek8 d = fromIntegral `fmap` peekByte (ptr `plusPtr` (d + os))
     b0 <- peek8 0
     b1 <- peek8 1

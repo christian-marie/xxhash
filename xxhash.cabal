@@ -15,6 +15,7 @@ library
   build-depends:       base >=4.6 && <4.7,
                        bytestring,
                        tagged,
+                       ghc-prim,
                        cereal,
                        crypto-api
   ghc-options:
@@ -27,6 +28,7 @@ test-suite             check
   build-depends:       base >=4.6 && <4.7,
                        bytestring,
                        hspec,
+                       QuickCheck,
                        xxhash
   hs-source-dirs:      tests
   main-is:             check.hs

@@ -1,40 +1,39 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module TestSuite where
 
+import Debug.Trace
 import Test.Hspec
+import Test.Hspec.QuickCheck
+import Test.QuickCheck
 
 import Data.Digest.XXHash
+import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString.Lazy as L
+
+instance Arbitrary L.ByteString where
+    arbitrary = L.pack `fmap` arbitrary
+    shrink xs = L.pack `fmap` shrink (L.unpack xs)
 
 suite :: Spec
 suite = do
-    describe "Internal functions, of which:" internalFunctionsTest
-    describe "Hashing a bytestring" $
-        it "works with known pairs" $ do
-            hashByteString 0 "the quick brown fox jumps over a pony" `shouldBe`
-                2069436874
-            hashByteString 0 "small" `shouldBe`
-                2387791210
-            hashByteString 0 "small" `shouldBe` 2387791210
-            hashByteString 123 "test" `shouldBe` 2758658570
-            hashByteString 42 "b" `shouldBe` 2220134325
+    describe "Hashing a bytestring" $ do
+        it "does not explode with sizes up to 2048" $ do
+            let strings = map ($ repeat 'A') (map (\n -> take n) [1..2048]) in
+                (length $ map (xxHash' . B.pack) strings) `shouldBe` 2048
 
-internalFunctionsTest :: Spec
-internalFunctionsTest = do
-    it "fromAcc has correct output" $
-        3672751773 `shouldBe` fromAcc 
-            (Acc 3707864141 1226176970 2466439235 1709939193)
-    it "stageOne has correct output" testStageOne
-    it "stageTwo has correct output" $
-        stageTwo 1852796960 3672751810 `shouldBe` 892131078
-    it "stageThree has correct output" $
-        stageThree 121 892131078 `shouldBe` 1167152160
-    it "finalize has correct output" $
-        finalize 1167152160 `shouldBe` 2069436874
-  where
-    testStageOne =
-        r `shouldBe` stageOne 543516788 1667855729 1919033451 544110447 v
-      where
-        
-        v = Acc 606290984 2246822519 0 1640531535
-        r = Acc 2590359605 2072081322 3418880061 977135912
+        it "works with known pairs" $ do
+            xxHash "" `shouldBe` 46947589
+            xxHash "the quick brown fox jumps over a pony" `shouldBe` 2069436874
+            xxHash' "small" `shouldBe` 2387791210
+            xxHash' "" `shouldBe` 46947589
+            let as = B.pack . take 500 $ repeat 'A' in
+                xxHash' as  `shouldBe` 1719491600
+
+    describe "Fuzzing random strings" $ do
+       prop "is deterministic" $  \string -> trace (show string) $
+            let h = xxHash string in
+                (xxHash' $ L.toStrict string) == h
+
+

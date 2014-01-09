@@ -1,15 +1,13 @@
 {-# LANGUAGE BangPatterns, CPP, GeneralizedNewtypeDeriving, RecordWildCards #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# OPTIONS_GHC -funbox-strict-fields #-}
+{-# LANGUAGE MultiParamTypeClasses, TypeSynonymInstances #-}
+{-# OPTIONS_GHC -funbox-strict-fields -fno-warn-orphans #-}
 
 module Data.Digest.XXHash
 (
-    XXHashCtx(..),
-    stageThree,
-    stageTwo,
-    stageOne,
-    finalize,
+    XXHashCtx,
+    XXHash,
     xxHash,
+    xxHash',
 ) where
 
 #include "MachDeps.h"
@@ -21,10 +19,8 @@ import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Ptr (Ptr, castPtr, plusPtr)
 import Data.ByteString.Internal (ByteString(PS), inlinePerformIO)
 import Foreign.Storable (peek)
+import Foreign.Ptr (nullPtr)
 import Crypto.Classes (Hash(..), hash)
-import qualified Data.Serialize.Get as G
-import qualified Data.Serialize.Put as P
-import qualified Data.Serialize as S
 import qualified Data.ByteString.Lazy as L
 
 data XXHashCtx = XXHashCtx { a1         :: !Word32
@@ -34,8 +30,7 @@ data XXHashCtx = XXHashCtx { a1         :: !Word32
                            , iterations :: !Word32
                            } deriving (Eq, Show)
 
-data XXHash = XXHash { unXXHash :: !Word32 }
-    deriving (Eq, Ord, Show)
+type XXHash = Word32
 type Seed = Word32
 
 initializeXXHashCtx :: Seed -> XXHashCtx
@@ -54,35 +49,13 @@ prime3 = 3266489917
 prime4 = 668265263
 prime5 = 374761393
 
-finalizeXXHash :: XXHash -> XXHash
-finalizeXXHash (XXHash hash) = XXHash $ step2 `xor` step2 `shiftR` 16
-  where
-    step1 = (hash `xor` (hash `shiftR` 15)) * prime2
-    step2 = (step1 `xor` (step1 `shiftR` 13)) * prime3
-
 stageOne :: Word32 -> Word32 -> Word32 -> Word32 -> XXHashCtx -> XXHashCtx
 stageOne i1 i2 i3 i4 XXHashCtx{..} =
     XXHashCtx (vx a1 i1) (vx a2 i2) (vx a3 i3) (vx a4 i4) (iterations + 1)
   where
       vx v i = ((v + i * prime2) `rotateL` 13) * prime1
-    
-stageTwo :: Word32 -> XXHash -> XXHash
-stageTwo i (XXHash hash) =
-    XXHash $ ((hash + i * prime3) `rotateL` 17) * prime4
 
-stageThree :: Word8 -> XXHash -> XXHash
-stageThree i (XXHash hash) =
-    XXHash $ ((hash + fromIntegral i * prime5) `rotateL` 11) * prime1
-
-ctxToDigest :: XXHashCtx -> Word64 -> XXHash
-ctxToDigest XXHashCtx{..} total_len =
-    XXHash $ (a1 `rotateL` 1) + (a2 `rotateL` 7) + (a3 `rotateL` 12) + (a4 `rotateL` 18) + (fromIntegral total_len)
-
-{-# INLINE stageThree #-}
-{-# INLINE stageTwo #-}
-{-# INLINE stageOne #-}
-{-# INLINE finalizeXXHash #-}
-
+-- This could be a lot faster, if I could figure out how. Suggestions welcome.
 updateXXHashCtx :: XXHashCtx -> ByteString -> XXHashCtx
 updateXXHashCtx ctx (PS fp os len) =
     inlinePerformIO . withForeignPtr fp $ \bs_base_ptr ->
@@ -107,7 +80,7 @@ finalizeXXHashCtx seed ctx (PS fp os len) =
             total_len = (fromIntegral len) + (fromIntegral $ iterations ctx) * 16
             go :: Ptr Word8 -> XXHashCtx -> IO XXHash
             go ptr !ctx'
-                | ptr <= ptr_end `plusPtr` (-16) = do
+                | ptr /= nullPtr && ptr <= ptr_end `plusPtr` (-16) = do
                     i1 <- peekLE32 ptr 0
                     i2 <- peekLE32 ptr 4
                     i3 <- peekLE32 ptr 8
@@ -116,11 +89,11 @@ finalizeXXHashCtx seed ctx (PS fp os len) =
                 | otherwise =
                     goEnd ptr $
                         if total_len >= 16
-                        then (ctxToDigest ctx' total_len)
-                        else XXHash $ seed + prime5 + (fromIntegral total_len)
+                        then ctxToDigest ctx' total_len
+                        else  seed + prime5 + (fromIntegral total_len)
             goEnd :: Ptr Word8 -> XXHash -> IO XXHash
             goEnd ptr !xxhash
-                | ptr <= ptr_end `plusPtr` (-4) = do
+                | ptr /= nullPtr && ptr <= ptr_end `plusPtr` (-4) = do
                     b <- peekLE32 ptr 0
                     goEnd (ptr `plusPtr` 4) (stageTwo b xxhash)
                 | ptr == ptr_end = 
@@ -129,15 +102,18 @@ finalizeXXHashCtx seed ctx (PS fp os len) =
                     b <- peekByte ptr
                     goEnd (ptr `plusPtr` 1) (stageThree b xxhash)
         in go ptr_beg ctx
-{-
- -
-            | otherwise = do
-                processEnd ptr $ (fromXXHashCtx v) + (fromIntegral len)
- -
- -
-        processEnd :: Ptr Word8 -> XXHash -> IO XXHash
-        processEnd ptr !hash
--}
+  where
+    stageTwo i xxhash =
+        ((xxhash + i * prime3) `rotateL` 17) * prime4
+
+    stageThree i xxhash =
+        ((xxhash + fromIntegral i * prime5) `rotateL` 11) * prime1
+    ctxToDigest XXHashCtx{..} total_len =
+        (a1 `rotateL` 1) + (a2 `rotateL` 7) + (a3 `rotateL` 12) + (a4 `rotateL` 18) + (fromIntegral total_len)
+    finalizeXXHash xxhash =  step2 `xor` step2 `shiftR` 16
+      where
+        step1 = (xxhash `xor` (xxhash `shiftR` 15)) * prime2
+        step2 = (step1 `xor` (step1 `shiftR` 13)) * prime3
 
 peekByte :: Ptr Word8 -> IO Word8
 peekByte = peek
@@ -160,18 +136,17 @@ peekLE32 ptr os = do
 #endif
 {-# INLINE peekLE32 #-}
 
-xxHash :: L.ByteString -> XXHash
-xxHash = hash
-
 instance Hash XXHashCtx XXHash where
-	outputLength = Tagged 128
-	blockLength  = Tagged 512
+	outputLength = Tagged 32 -- Word32
+        -- 128 bits, meaning that the context will never be updated with less
+        -- than 16 bytes
+	blockLength  = Tagged 128 
 	initialCtx   = initializeXXHashCtx 0
 	updateCtx    = updateXXHashCtx
 	finalize     = finalizeXXHashCtx 0
 
-instance S.Serialize XXHash where
-    put (XXHash p) = S.put p
-    get = do
-        p <- S.get
-        return $ XXHash p
+xxHash :: L.ByteString -> XXHash
+xxHash = hash
+
+xxHash' :: ByteString -> XXHash
+xxHash' = hash'

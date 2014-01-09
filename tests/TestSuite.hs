@@ -34,6 +34,7 @@ suite = do
     describe "Fuzzing random strings" $ do
        prop "is deterministic" $  \string -> trace (show string) $
             let h = xxHash string in
-                (xxHash' $ L.toStrict string) == h
+                (xxHash' $ L.toStrict string) == h &&
+                (c_xxHash' $ L.toStrict string) == h
 
 

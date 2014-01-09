@@ -8,6 +8,7 @@ module Data.Digest.XXHash
     XXHash,
     xxHash,
     xxHash',
+    c_xxHash',
 ) where
 
 #include "MachDeps.h"
@@ -22,6 +23,9 @@ import Foreign.Storable (peek)
 import Foreign.Ptr (nullPtr)
 import Crypto.Classes (Hash(..), hash)
 import qualified Data.ByteString.Lazy as L
+import qualified Data.ByteString as B
+import qualified Data.Digest.CXXHash as C
+import System.IO.Unsafe(unsafePerformIO)
 
 data XXHashCtx = XXHashCtx { a1         :: !Word32
                            , a2         :: !Word32
@@ -150,3 +154,7 @@ xxHash = hash
 
 xxHash' :: ByteString -> XXHash
 xxHash' = hash'
+
+c_xxHash' :: B.ByteString -> XXHash
+c_xxHash' bs = unsafePerformIO . B.useAsCStringLen bs $ \(str, len) ->
+    C.c_XXH32 str (fromIntegral len) 0

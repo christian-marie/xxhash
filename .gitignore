@@ -4,3 +4,4 @@ test.*
 dist/
 *.hi
 *.o
+html

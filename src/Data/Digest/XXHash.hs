@@ -1,5 +1,9 @@
-{-# LANGUAGE BangPatterns, CPP, GeneralizedNewtypeDeriving, RecordWildCards #-}
-{-# LANGUAGE MultiParamTypeClasses, TypeSynonymInstances #-}
+{-# LANGUAGE BangPatterns               #-}
+{-# LANGUAGE CPP                        #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE RecordWildCards            #-}
+{-# LANGUAGE TypeSynonymInstances       #-}
 {-# OPTIONS_GHC -funbox-strict-fields -fno-warn-orphans #-}
 
 -- |
@@ -34,19 +38,19 @@ module Data.Digest.XXHash
 
 #include "MachDeps.h"
 
+import Crypto.Classes (Hash (..), hash)
 import Data.Bits
+import qualified Data.ByteString as B
+import Data.ByteString.Internal (ByteString (PS), inlinePerformIO)
+import qualified Data.ByteString.Lazy as L
+import qualified Data.Digest.CXXHash as C
 import Data.Tagged
-import Data.Word (Word8, Word32, Word64)
+import Data.Word (Word32, Word64, Word8)
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Ptr (Ptr, castPtr, plusPtr)
-import Data.ByteString.Internal (ByteString(PS), inlinePerformIO)
-import Foreign.Storable (peek)
 import Foreign.Ptr (nullPtr)
-import Crypto.Classes (Hash(..), hash)
-import qualified Data.ByteString.Lazy as L
-import qualified Data.ByteString as B
-import qualified Data.Digest.CXXHash as C
-import System.IO.Unsafe(unsafePerformIO)
+import Foreign.Storable (peek)
+import System.IO.Unsafe (unsafePerformIO)
 
 -- These all get unboxed. Previous versions used unboxed words, tuples and
 -- primitive operations directly. This is much more readable for only a slight
@@ -130,7 +134,7 @@ finalizeXXHashCtx seed ctx (PS fp os len) =
                 | ptr /= nullPtr && ptr <= ptr_end `plusPtr` (-4) = do
                     b <- peekLE32 ptr 0
                     goEnd (ptr `plusPtr` 4) (stageTwo b xxhash)
-                | ptr == ptr_end = 
+                | ptr == ptr_end =
                     return $ finalizeXXHash xxhash
                 | otherwise = do
                     b <- peekByte ptr
@@ -178,13 +182,13 @@ peekLE32 ptr os = do
 
 -- Crypto.Classes does our boring stuff for us :D
 instance Hash XXHashCtx XXHash where
-	outputLength = Tagged 32 -- Word32
-        -- 128 bits, meaning that the context will never be updated with less
-        -- than 16 bytes
-	blockLength  = Tagged 128
-	initialCtx   = initializeXXHashCtx 0
-	updateCtx    = updateXXHashCtx
-	finalize     = finalizeXXHashCtx 0
+    outputLength = Tagged 32 -- Word32
+    -- 128 bits, meaning that the context will never be updated with less
+    -- than 16 bytes
+    blockLength  = Tagged 128
+    initialCtx   = initializeXXHashCtx 0
+    updateCtx    = updateXXHashCtx
+    finalize     = finalizeXXHashCtx 0
 
 
 -- |

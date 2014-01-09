@@ -5,9 +5,9 @@ module Data.Digest.CXXHash
 ) where
 
 import qualified Data.ByteString as B
+import Data.Word (Word32)
 import Foreign.C.String
 import Foreign.C.Types
-import Data.Word(Word32)
 
 #include <xxhash.h>
 -- | Compresses a string.

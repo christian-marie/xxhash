@@ -140,7 +140,7 @@ instance Hash XXHashCtx XXHash where
 	outputLength = Tagged 32 -- Word32
         -- 128 bits, meaning that the context will never be updated with less
         -- than 16 bytes
-	blockLength  = Tagged 128 
+	blockLength  = Tagged 128
 	initialCtx   = initializeXXHashCtx 0
 	updateCtx    = updateXXHashCtx
 	finalize     = finalizeXXHashCtx 0

@@ -2,12 +2,33 @@
 {-# LANGUAGE MultiParamTypeClasses, TypeSynonymInstances #-}
 {-# OPTIONS_GHC -funbox-strict-fields -fno-warn-orphans #-}
 
+-- |
+-- Module      : Data.Digest.XXHash
+-- Copyright   : (c) Christian Marie 2013
+-- License     : BSD3
+--
+-- Maintainer  : pingu@anchor.net.au
+-- Stability   : experimental
+-- Portability : portable
+--
+-- This module provides a pure implementation of the xxHash algorithm.
+--
+-- This implementation is almost as fast as the C version, which is avaliable
+-- as c_xxHash'.
+--
+-- Criterion benchmarks are avaliable via cabal bench.
+--
+-- More information on the algorithm may be found here:
+-- <https://code.google.com/p/xxhash/>
+--
 module Data.Digest.XXHash
 (
-    XXHashCtx,
+    -- *Types
     XXHash,
+    -- *Haskell
     xxHash,
     xxHash',
+    -- *C bindings
     c_xxHash',
 ) where
 
@@ -27,14 +48,22 @@ import qualified Data.ByteString as B
 import qualified Data.Digest.CXXHash as C
 import System.IO.Unsafe(unsafePerformIO)
 
-data XXHashCtx = XXHashCtx { a1         :: !Word32
+-- These all get unboxed. Previous versions used unboxed words, tuples and
+-- primitive operations directly. This is much more readable for only a slight
+-- performance penalty (less than 5%)
+data XXHashCtx = XXHashCtx { a1         :: !Word32 -- ^ Accumulators
                            , a2         :: !Word32
                            , a3         :: !Word32
                            , a4         :: !Word32
-                           , iterations :: !Word32
+                           , iterations :: !Word32 -- ^ To keep track length
                            } deriving (Eq, Show)
 
+-- |
+-- A type alias for a 'Word32'
 type XXHash = Word32
+
+-- The user can't currently touch the seed, it is set to zero in the Hash
+-- instance definition
 type Seed = Word32
 
 initializeXXHashCtx :: Seed -> XXHashCtx
@@ -53,13 +82,14 @@ prime3 = 3266489917
 prime4 = 668265263
 prime5 = 374761393
 
+-- This is inlined without any explicit help
 stageOne :: Word32 -> Word32 -> Word32 -> Word32 -> XXHashCtx -> XXHashCtx
 stageOne i1 i2 i3 i4 XXHashCtx{..} =
     XXHashCtx (vx a1 i1) (vx a2 i2) (vx a3 i3) (vx a4 i4) (iterations + 1)
   where
       vx v i = ((v + i * prime2) `rotateL` 13) * prime1
 
--- This could be a lot faster, if I could figure out how. Suggestions welcome.
+-- This is always called with a multiple of sixteen, convenient.
 updateXXHashCtx :: XXHashCtx -> ByteString -> XXHashCtx
 updateXXHashCtx ctx (PS fp os len) =
     inlinePerformIO . withForeignPtr fp $ \bs_base_ptr ->
@@ -112,13 +142,19 @@ finalizeXXHashCtx seed ctx (PS fp os len) =
 
     stageThree i xxhash =
         ((xxhash + fromIntegral i * prime5) `rotateL` 11) * prime1
+
     ctxToDigest XXHashCtx{..} total_len =
-        (a1 `rotateL` 1) + (a2 `rotateL` 7) + (a3 `rotateL` 12) + (a4 `rotateL` 18) + (fromIntegral total_len)
+        (a1 `rotateL` 1) + (a2 `rotateL` 7) +
+        (a3 `rotateL` 12) + (a4 `rotateL` 18) + (fromIntegral total_len)
+
     finalizeXXHash xxhash =  step2 `xor` step2 `shiftR` 16
       where
         step1 = (xxhash `xor` (xxhash `shiftR` 15)) * prime2
         step2 = (step1 `xor` (step1 `shiftR` 13)) * prime3
 
+-- PeekByte and peekLE32 are more or less borrowed and modified code from
+-- this:
+-- http://www.serpentine.com/blog/2012/10/02/a-fast-new-siphash-implementation-in-haskell/
 peekByte :: Ptr Word8 -> IO Word8
 peekByte = peek
 {-# INLINE peekByte #-}
@@ -140,6 +176,7 @@ peekLE32 ptr os = do
 #endif
 {-# INLINE peekLE32 #-}
 
+-- Crypto.Classes does our boring stuff for us :D
 instance Hash XXHashCtx XXHash where
 	outputLength = Tagged 32 -- Word32
         -- 128 bits, meaning that the context will never be updated with less
@@ -149,12 +186,20 @@ instance Hash XXHashCtx XXHash where
 	updateCtx    = updateXXHashCtx
 	finalize     = finalizeXXHashCtx 0
 
+
+-- |
+-- Hash a lazy ByteString, creating an XXHash
 xxHash :: L.ByteString -> XXHash
 xxHash = hash
 
+-- |
+-- Hash a strict ByteString, creating an XXHash
 xxHash' :: ByteString -> XXHash
 xxHash' = hash'
 
+-- |
+-- Hash a strict ByteString using the C implementation, the length of the
+-- ByteString should be limited to 2^31-1
 c_xxHash' :: B.ByteString -> XXHash
 c_xxHash' bs = unsafePerformIO . B.useAsCStringLen bs $ \(str, len) ->
     C.c_XXH32 str (fromIntegral len) 0

@@ -3,7 +3,6 @@
 
 module TestSuite where
 
-import Debug.Trace
 import Test.Hspec
 import Test.Hspec.QuickCheck
 import Test.QuickCheck
@@ -32,9 +31,7 @@ suite = do
                 xxHash' as  `shouldBe` 1719491600
 
     describe "Fuzzing random strings" $ do
-       prop "is deterministic" $  \string -> trace (show string) $
+       prop "is deterministic" $  \string ->
             let h = xxHash string in
                 (xxHash' $ L.toStrict string) == h &&
                 (c_xxHash' $ L.toStrict string) == h
-
-

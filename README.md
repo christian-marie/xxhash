@@ -1,4 +1,4 @@
-= Data.Digest.XXHash
+# Data.Digest.XXHash
 
 This is an implementation of the [xxHash](https://code.google.com/p/xxhash/)
 algorithm in haskell.

@@ -2,7 +2,7 @@ name:           xxhash
 version:        0.0.1
 license:        BSD3
 license-file:   LICENSE
-author:         Christian Marie <pingu@anchor.net.au>
+author:         Christian Marie <christian@ponies.io>
 maintainer:     Christian Marie
 description:    A Haskell-only implementation of the xxHash algorithm, a fast
                 non-cryptographic hashing algorithm.

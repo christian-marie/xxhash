@@ -19,7 +19,7 @@ suite :: Spec
 suite = do
     describe "Hashing a bytestring" $ do
         it "does not explode with sizes up to 2048" $ do
-            let strings = map ($ repeat 'A') (map (\n -> take n) [1..2048]) in
+            let strings = take 2048 $ iterate ('A':) "" in
                 (length $ map (xxHash' . B.pack) strings) `shouldBe` 2048
 
         it "works with known pairs" $ do

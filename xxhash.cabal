@@ -4,9 +4,9 @@ license:        BSD3
 license-file:   LICENSE
 author:         Christian Marie <christian@ponies.io>
 maintainer:     Christian Marie
-description:    A Haskell-only implementation of the xxHash algorithm, a fast
-                non-cryptographic hashing algorithm.
-synopsis:       A Haskell-only implementation of the xxHash algorithm
+description:    A Haskell implementation of the xxHash algorithm, for fast
+                non-cryptographic checksums of ByteStrings.
+synopsis:       A Haskell implementation of the xxHash algorithm
 category:       Data, Cryptography
 build-type:     Simple
 cabal-version:  >= 1.10
@@ -17,8 +17,6 @@ library
   build-depends:       base >=4.6 && <4.7,
                        bytestring,
                        tagged,
-                       ghc-prim,
-                       cereal,
                        crypto-api
   ghc-options:
   c-sources:           src/cbits/xxhash.c

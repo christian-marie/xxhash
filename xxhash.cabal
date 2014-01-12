@@ -12,6 +12,9 @@ build-type:     Simple
 cabal-version:  >= 1.10
 extra-source-files:
                 src/cbits/xxhash.c, src/cbits/xxhash.h
+source-repository head
+  type: git
+  location: https://github.com/christian-marie/xxhash/
 
 library
   build-depends:       base >=4.6 && <4.7,

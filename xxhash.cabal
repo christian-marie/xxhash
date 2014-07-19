@@ -17,7 +17,7 @@ source-repository head
   location: https://github.com/christian-marie/xxhash/
 
 library
-  build-depends:       base >=4.6 && <4.7,
+  build-depends:       base >=4.6 && <5,
                        bytestring,
                        tagged,
                        crypto-api
@@ -31,7 +31,7 @@ library
 
 test-suite             check
   type:                exitcode-stdio-1.0
-  build-depends:       base >=4.6 && <4.7,
+  build-depends:       base >=4.6 && <5,
                        bytestring,
                        hspec,
                        QuickCheck,
@@ -45,7 +45,7 @@ benchmark bench
   hs-source-dirs:      bench
   main-is:             Bench.hs
   type:                exitcode-stdio-1.0
-  build-depends:       base >=4.6 && <4.7,
+  build-depends:       base >=4.6 && <5,
                        bytestring,
                        criterion,
                        digest,

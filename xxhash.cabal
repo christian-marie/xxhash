@@ -49,7 +49,6 @@ benchmark bench
                        bytestring,
                        criterion,
                        digest,
-                       murmur-hash,
                        deepseq,
                        hashable,
                        xxhash

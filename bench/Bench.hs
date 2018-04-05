@@ -9,12 +9,9 @@ import qualified Data.ByteString.Lazy as L
 import qualified Data.Digest.XXHash as XXHash
 import qualified Data.Digest.Adler32 as Adler32
 import qualified Data.Digest.CRC32 as CRC32
-import qualified Data.Digest.Murmur32 as M32
 import qualified Data.Hashable as Hashable
 
 import Criterion.Main
-import Control.DeepSeq
-instance NFData M32.Hash32
 
 main :: IO ()
 main = do

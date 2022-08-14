@@ -40,7 +40,7 @@ module Data.Digest.XXHash
 import Crypto.Classes (Hash (..), hash)
 import Data.Bits
 import qualified Data.ByteString as B
-import Data.ByteString.Internal (ByteString (PS), unsafePerformIO)
+import Data.ByteString.Internal (ByteString (PS))
 import qualified Data.ByteString.Lazy as L
 import qualified Data.Digest.CXXHash as C
 import Data.Tagged

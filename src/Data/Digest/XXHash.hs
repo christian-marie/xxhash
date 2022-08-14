@@ -109,7 +109,7 @@ updateXXHashCtx ctx (PS fp os len) =
 
 finalizeXXHashCtx :: Seed -> XXHashCtx -> ByteString -> XXHash
 finalizeXXHashCtx seed ctx (PS fp os len) =
-    inlinePerformIO . withForeignPtr fp $ \bs_base_ptr ->
+    unsafePerformIO . withForeignPtr fp $ \bs_base_ptr ->
         let ptr_beg = bs_base_ptr `plusPtr` os
             ptr_end = ptr_beg `plusPtr` len
             total_len :: Word64

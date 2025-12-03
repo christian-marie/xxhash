@@ -40,7 +40,7 @@ module Data.Digest.XXHash
 import Crypto.Classes (Hash (..), hash)
 import Data.Bits
 import qualified Data.ByteString as B
-import Data.ByteString.Internal (ByteString (PS), inlinePerformIO)
+import Data.ByteString.Internal (ByteString (PS))
 import qualified Data.ByteString.Lazy as L
 import qualified Data.Digest.CXXHash as C
 import Data.Tagged
@@ -94,7 +94,7 @@ stageOne i1 i2 i3 i4 XXHashCtx{..} =
 -- This is always called with a multiple of sixteen, convenient.
 updateXXHashCtx :: XXHashCtx -> ByteString -> XXHashCtx
 updateXXHashCtx ctx (PS fp os len) =
-    inlinePerformIO . withForeignPtr fp $ \bs_base_ptr ->
+    unsafePerformIO . withForeignPtr fp $ \bs_base_ptr ->
         let ptr_beg = bs_base_ptr `plusPtr` os
             ptr_end = ptr_beg `plusPtr` len
             go ptr !ctx'
@@ -109,7 +109,7 @@ updateXXHashCtx ctx (PS fp os len) =
 
 finalizeXXHashCtx :: Seed -> XXHashCtx -> ByteString -> XXHash
 finalizeXXHashCtx seed ctx (PS fp os len) =
-    inlinePerformIO . withForeignPtr fp $ \bs_base_ptr ->
+    unsafePerformIO . withForeignPtr fp $ \bs_base_ptr ->
         let ptr_beg = bs_base_ptr `plusPtr` os
             ptr_end = ptr_beg `plusPtr` len
             total_len :: Word64
